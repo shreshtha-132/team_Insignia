@@ -1,10 +1,14 @@
 from PIL import Image
 import pytesseract
 import pandas as pd
+from io import BytesIO
+from flask import Flask, request, jsonify
+
+app = Flask(__name__)
 
 # Function to convert image to text using OCR
-def image_to_text(image_path):
-    img = Image.open(image_path)
+def image_to_text(image_data):
+    img = Image.open(BytesIO(image_data))  # Open image from the raw bytes
     text = pytesseract.image_to_string(img, lang='eng')
     return text
 
@@ -32,17 +36,6 @@ def extract_columns(df):
 
 # Function to check for presence of ingredients in text segments and retrieve corresponding health concerns
 def check_ingredients_and_extract_health_concerns(text_segments, ingredient_df):
-    """
-    Check for the presence of each ingredient in 'Ingredient' column within each text segment
-    and retrieve the corresponding 'Health concerns' for the matched ingredient.
-
-    Parameters:
-    text_segments (list of str): List containing text segments extracted from the image.
-    ingredient_df (DataFrame): DataFrame containing ingredients and health concerns.
-
-    Returns:
-    dict: Dictionary where keys are found ingredients and values are the corresponding health concerns.
-    """
     found_ingredients_health = {}
 
     for _, row in ingredient_df.iterrows():
@@ -54,33 +47,42 @@ def check_ingredients_and_extract_health_concerns(text_segments, ingredient_df):
 
     return found_ingredients_health
 
-# Paths for the image and CSV file
-image_path = 'images/pop.jpg'
-csv_file_path = 'expanded_harmful_ingredients_dataset.csv'
+@app.route('/process-image', methods=['POST'])
+def process_image():
+    # Check if the request contains an image
+    if 'image' not in request.files:
+        return jsonify({'error': 'No image provided'}), 400
 
-# Process the image
-extracted_text = image_to_text(image_path)
-text_segments = split_text_by_comma(extracted_text)
-print("Extracted Text Segments:", text_segments)
+    image_file = request.files['image']
 
-# Load the CSV and extract ingredients and health concerns columns
-dataframe = load_csv_to_dataframe(csv_file_path)
-if dataframe is not None:
-    ingredient_df = extract_columns(dataframe)
+    # Process the image
+    image_data = image_file.read()  # Read the raw image data
+    extracted_text = image_to_text(image_data)  # Pass the raw image data to the OCR function
+    text_segments = split_text_by_comma(extracted_text)
+    # Load CSV and extract ingredients and health concerns columns
+    csv_file_path = 'expanded_harmful_ingredients_dataset.csv'
+    dataframe = load_csv_to_dataframe(csv_file_path)
+    
+    if dataframe is not None:
+        ingredient_df = extract_columns(dataframe)
 
-    # Check if any ingredients are present in the text segments and get corresponding health concerns
-    if ingredient_df is not None:
-        matching_ingredients_health = check_ingredients_and_extract_health_concerns(text_segments, ingredient_df)
-        print("Matching Ingredients and Corresponding Health Concerns:")
-        for ingredient, health_concern in matching_ingredients_health.items():
-            print(f"Ingredient: {ingredient}")
-            print(f"Health Concern: {health_concern}")
+        if ingredient_df is not None:
+            matching_ingredients_health = check_ingredients_and_extract_health_concerns(text_segments, ingredient_df)
 
-        # Calculate the comparison factor
-        num_text_segments = len(text_segments)
-        num_matched_ingredients = len(matching_ingredients_health)
-        if num_text_segments > 0:
-            comparison_factor = (num_matched_ingredients / num_text_segments) * 100
-            print(f"Comparison Factor: {comparison_factor:.2f}%")
-        else:
-            print("No text segments found to compare.")
+            # Calculate the comparison factor
+            num_text_segments = len(text_segments)
+            num_matched_ingredients = len(matching_ingredients_health)
+            if num_text_segments > 0:
+                comparison_factor = (num_matched_ingredients / num_text_segments) * 100
+            else:
+                comparison_factor = 0
+
+            return jsonify({
+                'matching_ingredients_health': matching_ingredients_health,
+                'comparison_factor': comparison_factor
+            })
+
+    return jsonify({'error': 'Unable to process image'}), 500
+
+if __name__ == '__main__':
+    app.run(debug=True)

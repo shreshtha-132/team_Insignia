@@ -3,7 +3,9 @@ import 'dart:convert';
 import 'dart:io';
 
 class OcrService {
-  static const String apiUrl = 'http://localhost:5000/process-image';  // Update with backend URL
+  static const String apiUrl = 'http://192.168.0.204:5000/process-image';  // Update with backend URL
+
+
 
   static Future<Map<String, String>?> scanImage(File imageFile) async {
     try {
